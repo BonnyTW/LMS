@@ -24,8 +24,13 @@ public class Loan {
     private Date loanDate;
     private Date dueDate;
 
+    // ✅ new fields
+    private Integer termMonths;   // loan tenure in months
+    private BigDecimal emiAmount; // fixed EMI calculated
+
     public Loan() {}
 
+    // --- Getters and Setters ---
     public int getId() { return id; }
     public void setId(int id) { this.id = id; }
 
@@ -46,4 +51,10 @@ public class Loan {
 
     public Date getDueDate() { return dueDate; }
     public void setDueDate(Date dueDate) { this.dueDate = dueDate; }
+
+    public Integer getTermMonths() { return termMonths; }
+    public void setTermMonths(Integer termMonths) { this.termMonths = termMonths; }
+
+    public BigDecimal getEmiAmount() { return emiAmount; }
+    public void setEmiAmount(BigDecimal emiAmount) { this.emiAmount = emiAmount; }
 }
