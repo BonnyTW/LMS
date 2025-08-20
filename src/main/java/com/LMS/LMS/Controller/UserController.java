@@ -7,8 +7,11 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.LMS.LMS.DTO.ForgotPasswordRequestDto;
+import com.LMS.LMS.DTO.ResetPasswordDto;
 import com.LMS.LMS.Model.Users;
 import com.LMS.LMS.Service.UserService;
+
 
 
 
@@ -32,5 +35,15 @@ public class UserController {
     @PostMapping("/login")
     public String login(@RequestBody Users user) {
         return service.verify(user);
+    }
+    
+    @PostMapping("/forgotPassword")
+    public ResponseEntity<String> forgotPassword(@RequestBody ForgotPasswordRequestDto requestDto) {
+        return service.handleForgotPassword(requestDto);
+    }
+
+    @PostMapping("/resetPassword")
+    public ResponseEntity<String> resetPassword(@RequestBody ResetPasswordDto resetDto) {
+        return service.handleResetPassword(resetDto);
     }
 }

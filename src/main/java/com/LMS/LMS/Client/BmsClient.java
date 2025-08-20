@@ -4,17 +4,18 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
-import com.LMS.LMS.Model.TransactionHistory;
+import com.LMS.LMS.DTO.LoanSummaryDto;
 import com.LMS.LMS.Util.JwtUtil;
 
 import java.math.BigDecimal;
-import java.util.*;
+import java.util.HashMap;
+import java.util.Map;
 
 @Component
 public class BmsClient {
 
     private final RestTemplate restTemplate = new RestTemplate();
-    private final String baseUrl = "https://7b00e0bc941b.ngrok-free.app/api/bank";
+    private final String baseUrl = "https://263d5190b174.ngrok-free.app/api/bank";
 
     private HttpHeaders buildHeaders(String accountNumber) {
         String jwt = JwtUtil.generateToken(accountNumber);
@@ -59,15 +60,15 @@ public class BmsClient {
         return restTemplate.postForEntity(baseUrl + "/repay", request, String.class).getBody();
     }
 
-    // ✅ Fetch transaction history from BMS
-    public List<TransactionHistory> getTransactionHistory(String accountNumber) {
+    // Fetch loan summary
+    public LoanSummaryDto getLoanSummary(String accountNumber) {
         HttpEntity<Void> request = new HttpEntity<>(buildHeaders(accountNumber));
-        ResponseEntity<TransactionHistory[]> response = restTemplate.exchange(
-                baseUrl + "/transactions?accountNumber=" + accountNumber,
+        ResponseEntity<LoanSummaryDto> response = restTemplate.exchange(
+                baseUrl + "/loan-summary/" + accountNumber,
                 HttpMethod.GET,
                 request,
-                TransactionHistory[].class
+                LoanSummaryDto.class
         );
-        return response.getBody() != null ? Arrays.asList(response.getBody()) : new ArrayList<>();
+        return response.getBody();
     }
 }

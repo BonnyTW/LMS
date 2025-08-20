@@ -23,6 +23,10 @@ public class LoanApplication {
     private int termMonths;
     private String status; // PENDING / APPROVED / REJECTED
 
+    // 👉 New Fields
+    private BigDecimal emiPerMonth;
+    private BigDecimal totalEmi;
+
     public LoanApplication() {}
 
     public int getId() { return id; }
@@ -45,4 +49,10 @@ public class LoanApplication {
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+
+    public BigDecimal getEmiPerMonth() { return emiPerMonth; }
+    public void setEmiPerMonth(BigDecimal emiPerMonth) { this.emiPerMonth = emiPerMonth; }
+
+    public BigDecimal getTotalEmi() { return totalEmi; }
+    public void setTotalEmi(BigDecimal totalEmi) { this.totalEmi = totalEmi; }
 }

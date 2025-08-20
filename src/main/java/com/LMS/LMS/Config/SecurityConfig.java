@@ -29,12 +29,10 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http.csrf().disable()
-            .authorizeHttpRequests(auth -> auth
-                // Public endpoints
-                .requestMatchers("/register", "/login").permitAll()
-                // All other endpoints require authentication
-                .anyRequest().authenticated()
-            )
+        .authorizeHttpRequests(auth -> auth
+				.requestMatchers("/login", "/register", "/forgotPassword", "/resetPassword").permitAll()
+				.anyRequest().authenticated()
+			)
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
 
         // Add JWT filter before UsernamePasswordAuthenticationFilter
