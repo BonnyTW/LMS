@@ -15,7 +15,7 @@ import java.util.Map;
 public class BmsClient {
 
     private final RestTemplate restTemplate = new RestTemplate();
-    private final String baseUrl = "https://263d5190b174.ngrok-free.app/api/bank";
+    private final String baseUrl = "https://d5c009cb375d.ngrok-free.app/api/bank";
 
     private HttpHeaders buildHeaders(String accountNumber) {
         String jwt = JwtUtil.generateToken(accountNumber);

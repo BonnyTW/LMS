@@ -22,6 +22,7 @@ public class DataInitializer implements CommandLineRunner{
 	public void run(String... args) throws Exception {
 		if (userReppo.count() == 0) {
 		    Users admin = new Users();
+		    admin.setFullName("Admin");
 		    admin.setUsername("admin");
 		    admin.setPassword(new BCryptPasswordEncoder().encode("password"));
 		    admin.setRole("ROLE_ADMIN");  // ✅ Add ROLE_ prefix

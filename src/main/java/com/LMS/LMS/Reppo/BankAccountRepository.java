@@ -22,4 +22,6 @@ public interface BankAccountRepository extends JpaRepository<BankAccount, Intege
 
     // 🔥 New → get all accounts (fake or real) for this account number
     List<BankAccount> findAllByAccountNumber(String accountNumber);
+    
+    BankAccount findByUserId(int userId);
 }

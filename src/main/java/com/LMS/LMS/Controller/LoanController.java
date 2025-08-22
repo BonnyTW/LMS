@@ -1,7 +1,11 @@
 package com.LMS.LMS.Controller;
 
+import com.LMS.LMS.DTO.LoanAppDto;
+import com.LMS.LMS.DTO.LoanDTO;
 import com.LMS.LMS.DTO.PendingLoanResponseDto;
+import com.LMS.LMS.Model.BankAccount;
 import com.LMS.LMS.Model.Users;
+import com.LMS.LMS.Reppo.BankAccountRepository;
 import com.LMS.LMS.Reppo.UserReppo;
 import com.LMS.LMS.Service.JwtService;
 import com.LMS.LMS.Service.LoanService;
@@ -30,6 +34,9 @@ public class LoanController {
 
     @Autowired
     private UserReppo userReppo;
+    
+    @Autowired
+    private BankAccountRepository bankAccountRepo;
 
     private Users getCurrentUser(HttpServletRequest request) {
         String authHeader = request.getHeader("Authorization");
@@ -110,6 +117,59 @@ public class LoanController {
         return ResponseEntity.ok(pending);
     }
     
+    
+   
+    // 👉 Get Loan Applications for the logged-in user by accountNumber
+    @GetMapping("/applications/{accountNumber}")
+    public ResponseEntity<?> getUserLoanApplications(
+            @PathVariable String accountNumber,
+            HttpServletRequest request) {
+
+        Users currentUser = getCurrentUser(request);
+        if (currentUser == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("❌ Invalid or missing token");
+        }
+
+        // fetch user's bank account
+        BankAccount account = bankAccountRepo.findByUserId(currentUser.getId());
+        if (account == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("❌ No bank account found for this user");
+        }
+
+        // check if path accountNumber matches user's account
+        if (!account.getAccountNumber().equals(accountNumber)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("❌ You can only access your own account data");
+        }
+
+        List<LoanAppDto> applications = loanService.getLoanApplicationsByAccountNumber(accountNumber);
+        return ResponseEntity.ok(applications);
+    }
+
+    // 👉 Similarly, you can do Loans endpoint
+    @GetMapping("/active/{accountNumber}")
+    public ResponseEntity<?> getUserLoans(
+            @PathVariable String accountNumber,
+            HttpServletRequest request) {
+
+        Users currentUser = getCurrentUser(request);
+        if (currentUser == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("❌ Invalid or missing token");
+        }
+
+        // fetch user's bank account
+        BankAccount account = bankAccountRepo.findByUserId(currentUser.getId());
+        if (account == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("❌ No bank account found for this user");
+        }
+
+        // check if path accountNumber matches user's account
+        if (!account.getAccountNumber().equals(accountNumber)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("❌ You can only access your own account data");
+        }
+
+        List<LoanDTO> loans = loanService.getLoansByAccountNumber(accountNumber);
+        return ResponseEntity.ok(loans);
+    }
     
 
 }

@@ -41,6 +41,10 @@ public class UserService {
     
     @Autowired
     UserMapper userMapper;
+    
+    @Autowired
+    private CreditScoreService creditScoreService;
+
 
     private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
 
@@ -49,7 +53,7 @@ public class UserService {
         if (reppo.findByUsername(user.getUsername()) != null) {
             throw new RuntimeException("Username already exists");
         }
-
+        user.setFullName(user.getFullName());
         user.setPassword(encoder.encode(user.getPassword()));
         if (user.getRole() == null || user.getRole().isBlank()) {
             user.setRole("ROLE_USER");
@@ -59,8 +63,14 @@ public class UserService {
             mailService.sendRegistrationEmail(user.getEmail(), user.getUsername());
         }
 
-        return reppo.save(user);
+        Users savedUser = reppo.save(user);
+
+        // ✅ Create initial credit score for new user
+        creditScoreService.getOrCreateCreditScore(savedUser);
+
+        return savedUser;
     }
+
 
 
     /** Login */

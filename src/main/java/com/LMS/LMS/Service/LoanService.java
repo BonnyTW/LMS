@@ -1,7 +1,9 @@
 package com.LMS.LMS.Service;
 
 import com.LMS.LMS.Client.BmsClient;
+import com.LMS.LMS.DTO.LoanAppDto;
 import com.LMS.LMS.DTO.LoanApplicationDto;
+import com.LMS.LMS.DTO.LoanDTO;
 import com.LMS.LMS.DTO.LoanSummaryDto;
 import com.LMS.LMS.DTO.PendingLoanResponseDto;
 import com.LMS.LMS.Model.*;
@@ -24,6 +26,9 @@ public class LoanService {
     
     @Autowired
     private MailService mailService;
+    
+    @Autowired
+    private CreditScoreService creditScoreService;
 
 
     private final BmsClient bmsClient;
@@ -128,6 +133,9 @@ public class LoanService {
                 mainAccount.setStatus("VERIFIED");
                 bankAccountRepo.save(mainAccount);
 
+                // ✅ Update credit score (+20 for bank verification)
+                creditScoreService.updateScore(user, 20);
+
                 // Delete duplicates for other users
                 accounts.stream()
                         .filter(acc -> acc.getUser().getId() != user.getId())
@@ -141,6 +149,9 @@ public class LoanService {
                 account.setAccountNumber(accountNumber);
                 account.setStatus("VERIFIED");
                 bankAccountRepo.save(account);
+
+                // ✅ Update credit score (+20 for bank verification)
+                creditScoreService.updateScore(user, 20);
 
                 // Delete duplicates for other users
                 accounts.stream()
@@ -156,16 +167,24 @@ public class LoanService {
 
     /** APPLY LOAN */
     public String applyLoan(String accountNumber, BigDecimal amount, String purpose, int termMonths, Users user) {
+        // 1️⃣ Ensure bank account belongs to user & is verified
         Optional<BankAccount> accountOpt = bankAccountRepo.findAllByAccountNumber(accountNumber).stream()
                 .filter(acc -> "VERIFIED".equals(acc.getStatus()) && Objects.equals(acc.getUser().getId(), user.getId()))
                 .findFirst();
         if (accountOpt.isEmpty()) return "❌ Account not verified or not yours.";
 
+        // 2️⃣ Check existing loans
         LoanSummaryDto summary = bmsClient.getLoanSummary(accountNumber);
         if (summary.getLoanRemaining().compareTo(BigDecimal.ZERO) > 0)
             return "❌ Cannot apply: outstanding loan " + summary.getLoanRemaining();
 
-        // 👉 EMI Calculation
+        // 3️⃣ Fetch user's credit score
+        CreditScore cs = creditScoreService.getOrCreateCreditScore(user);
+        if (cs.getScore() < 600) {
+            return "❌ Loan application denied. Your credit score (" + cs.getScore() + ") is too low.";
+        }
+
+        // 4️⃣ EMI Calculation
         BigDecimal annualInterestRate = new BigDecimal("10"); // 10% annual
         BigDecimal monthlyRate = annualInterestRate.divide(BigDecimal.valueOf(12 * 100), 10, RoundingMode.HALF_UP);
 
@@ -179,7 +198,7 @@ public class LoanService {
 
         BigDecimal totalPayable = emi.multiply(BigDecimal.valueOf(n)).setScale(2, RoundingMode.HALF_UP);
 
-        // 👉 Save Loan Application
+        // 5️⃣ Save Loan Application
         LoanApplication app = new LoanApplication();
         app.setUser(user);
         app.setAccount(accountOpt.get());
@@ -192,8 +211,12 @@ public class LoanService {
 
         loanAppRepo.save(app);
 
-        return "✅ Loan application submitted successfully. " +
-                "\nMonthly EMI: " + emi + 
+        // 6️⃣ Adjust credit score slightly for applying (optional rule)
+        creditScoreService.updateScore(user, -10); // Small penalty for taking loan
+
+        return "✅ Loan application submitted successfully." +
+                "\nYour Credit Score: " + cs.getScore() +
+                "\nMonthly EMI: " + emi +
                 "\nTotal Payable: " + totalPayable;
     }
 
@@ -226,32 +249,35 @@ public class LoanService {
         if (appOpt.isEmpty()) return "❌ Loan application not found.";
 
         LoanApplication app = appOpt.get();
-        LoanSummaryDto summary = bmsClient.getLoanSummary(app.getAccount().getAccountNumber());
+        Users user = app.getUser();
 
-        // If user already has outstanding loan -> reject
+ 
+        LoanSummaryDto summary = bmsClient.getLoanSummary(app.getAccount().getAccountNumber());
         if (summary.getLoanRemaining().compareTo(BigDecimal.ZERO) > 0) {
             app.setStatus("REJECTED");
             loanAppRepo.save(app);
 
+            creditScoreService.updateScore(user, -10); // penalize slightly
+
             mailService.sendEmail(
-                app.getUser().getEmail(),
+                user.getEmail(),
                 "Loan Application Rejected",
-                "Hello " + app.getUser().getUsername() + 
-                ",\n\nYour loan application has been rejected due to outstanding loan balance of " 
+                "Hello " + user.getUsername() +
+                ",\n\nYour loan application has been rejected due to outstanding loan balance of "
                 + summary.getLoanRemaining() + "."
             );
 
             return "❌ Cannot approve: outstanding loan " + summary.getLoanRemaining();
         }
 
-        // Otherwise approve loan
+        // ✅ Step 3: Approve loan
         app.setStatus("APPROVED");
         loanAppRepo.save(app);
 
         String disburseResult = bmsClient.disburseLoan(app.getAccount().getAccountNumber(), app.getLoanAmount());
         if (disburseResult != null && disburseResult.toLowerCase().contains("loan of $")) {
             Loan loan = new Loan();
-            loan.setUser(app.getUser());
+            loan.setUser(user);
             loan.setAccount(app.getAccount());
             loan.setTotalLoan(app.getLoanAmount());
             loan.setRemainingAmount(app.getLoanAmount());
@@ -262,18 +288,22 @@ public class LoanService {
 
             BigDecimal annualInterestRate = new BigDecimal("10"); // 10% annual interest
             generateEmiSchedule(loan, annualInterestRate);
+
+            // ✅ Increase score for approval
+            creditScoreService.updateScore(user, +30);
         }
 
-        // Send approval email
+        // ✅ Send approval email
         mailService.sendEmail(
-            app.getUser().getEmail(),
+            user.getEmail(),
             "Loan Application Approved",
-            "Hello " + app.getUser().getUsername() + 
+            "Hello " + user.getUsername() +
             ",\n\nCongratulations! Your loan of " + app.getLoanAmount() + " has been approved and disbursed."
         );
 
         return disburseResult;
     }
+
 
 
 
@@ -326,14 +356,29 @@ public class LoanService {
 
     /** REPAY LOAN */
     public ResponseEntity<String> repayLoan(String accountNumber, BigDecimal amount, Users user) {
-        Optional<Loan> loanOpt = loanRepo.findByAccountAccountNumber(accountNumber);
-        if (loanOpt.isEmpty()) return ResponseEntity.badRequest().body("Loan not found.");
+        // ✅ Step 1: Fetch all loans for the account
+        List<Loan> loans = loanRepo.findByAccountAccountNumber(accountNumber);
 
-        Loan loan = loanOpt.get();
-        if (!Integer.valueOf(loan.getUser().getId()).equals(user.getId()))
+        if (loans.isEmpty()) {
+            return ResponseEntity.badRequest().body("❌ No loan found for account number " + accountNumber);
+        }
+
+        // ✅ Step 2: Pick a loan with outstanding balance (remainingAmount > 0)
+        Loan loan = loans.stream()
+                .filter(l -> l.getRemainingAmount().compareTo(BigDecimal.ZERO) > 0)
+                .findFirst()
+                .orElse(null);
+
+        if (loan == null) {
+            return ResponseEntity.badRequest().body("✅ All loans for this account are already paid off.");
+        }
+
+        // ✅ Step 3: Authorization check
+        if (!Integer.valueOf(loan.getUser().getId()).equals(user.getId())) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body("❌ You are not authorized.");
+        }
 
-        // Save repayment record
+        // ✅ Step 4: Save repayment record
         Repayment repayment = new Repayment();
         repayment.setLoan(loan);
         repayment.setAmount(amount);
@@ -341,20 +386,22 @@ public class LoanService {
         repayment.setStatus("WAITING");
         repaymentRepo.save(repayment);
 
-        // Simulate BMS payment
+        // ✅ Step 5: Simulate BMS payment
         String bmsResult = bmsClient.repayLoan(accountNumber, amount);
         if (bmsResult != null && bmsResult.toLowerCase().contains("received")) {
             repayment.setStatus("PAID");
             repaymentRepo.save(repayment);
 
+            BigDecimal beforeRemaining = loan.getRemainingAmount(); // Track old balance
+
             BigDecimal remainingPayment = amount;
             List<LoanEmiSchedule> schedules = loanEmiScheduleRepo.findByLoanOrderByInstallmentNumberAsc(loan);
 
-            // Step 1: Deduct payment from loan.remainingAmount
+            // Step 6: Deduct payment from loan.remainingAmount
             loan.setRemainingAmount(loan.getRemainingAmount().subtract(amount));
             if (loan.getRemainingAmount().compareTo(BigDecimal.ZERO) < 0) loan.setRemainingAmount(BigDecimal.ZERO);
 
-            // Step 2: Pay EMIs interest first, then principal
+            // Step 7: Pay EMIs interest first, then principal
             for (LoanEmiSchedule emi : schedules) {
                 if ("PAID".equals(emi.getStatus())) continue;
 
@@ -386,7 +433,7 @@ public class LoanService {
                 if (remainingPayment.compareTo(BigDecimal.ZERO) <= 0) break;
             }
 
-            // Step 3: Recalculate future EMIs if loan is still outstanding
+            // Step 8: Recalculate future EMIs if loan still outstanding
             BigDecimal remainingPrincipal = loan.getRemainingAmount();
             if (remainingPrincipal.compareTo(BigDecimal.ZERO) > 0) {
                 BigDecimal monthlyRate = new BigDecimal("0.10").divide(BigDecimal.valueOf(12), 10, RoundingMode.HALF_UP);
@@ -429,7 +476,23 @@ public class LoanService {
 
             loanRepo.save(loan);
 
-            // ✅ Send repayment confirmation email
+            // ✅ Step 9: Credit Score Logic
+            CreditScore cs = creditScoreService.getOrCreateCreditScore(user);
+
+            if (loan.getRemainingAmount().compareTo(BigDecimal.ZERO) == 0) {
+                creditScoreService.updateScore(user, +50); // fully cleared
+            } else if (amount.compareTo(loan.getEmiAmount()) >= 0) {
+                creditScoreService.updateScore(user, +2); // at least EMI
+            } else {
+                creditScoreService.updateScore(user, -5); // less than EMI
+            }
+
+            // Late repayment check
+            if (repayment.getRepaymentDate().after(loan.getDueDate())) {
+                creditScoreService.updateScore(user, -20); // big penalty for late payment
+            }
+
+            // ✅ Step 10: Send repayment confirmation email
             try {
                 mailService.sendEmail(
                     user.getEmail(),
@@ -442,7 +505,6 @@ public class LoanService {
                 );
             } catch (Exception e) {
                 e.printStackTrace();
-                // not failing the repayment process if email fails
             }
 
             return ResponseEntity.ok("✅ Payment applied successfully.");
@@ -451,6 +513,50 @@ public class LoanService {
             repaymentRepo.save(repayment);
             return ResponseEntity.badRequest().body("Payment failed: " + bmsResult);
         }
+    }
+    
+    
+    
+    public List<LoanDTO> getLoansByAccountNumber(String accountNumber) {
+        List<Loan> loans = loanRepo.findByAccountAccountNumber(accountNumber);
+        List<LoanDTO> loanDTOs = new ArrayList<>();
+
+        for (Loan loan : loans) {
+            LoanDTO dto = new LoanDTO(
+                    loan.getId(),
+                    loan.getAccount().getAccountNumber(),
+                    loan.getTotalLoan(),
+                    loan.getRemainingAmount(),
+                    loan.getLoanDate(),
+                    loan.getDueDate(),
+                    loan.getTermMonths(),
+                    loan.getEmiAmount()
+            );
+            loanDTOs.add(dto);
+        }
+
+        return loanDTOs;
+    }
+
+    public List<LoanAppDto> getLoanApplicationsByAccountNumber(String accountNumber) {
+        List<LoanApplication> apps = loanAppRepo.findByAccountAccountNumber(accountNumber);
+        List<LoanAppDto> appDTOs = new ArrayList<>();
+
+        for (LoanApplication app : apps) {
+            LoanAppDto dto = new LoanAppDto(
+                    app.getId(),
+                    app.getAccount().getAccountNumber(),
+                    app.getLoanAmount(),
+                    app.getPurpose(),
+                    app.getTermMonths(),
+                    app.getStatus(),
+                    app.getEmiPerMonth(),
+                    app.getTotalEmi()
+            );
+            appDTOs.add(dto);
+        }
+
+        return appDTOs;
     }
 
 
